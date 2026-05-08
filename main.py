@@ -1,3 +1,9 @@
+__author__ = "Brian Shevitski"
+__email__ = "brian.shevitski@gmail.com"
+__version__ = "1.0.0"
+__status__ = "Production"
+__date__ = "2026/05/08"
+
 import sys
 import time
 import json
