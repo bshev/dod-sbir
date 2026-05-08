@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Pull a fresh dod_sbir.db from the server. scores.db is local-only and untouched.
-# Usage: ./pull_db.sh [user@host]
-#
-# Set REMOTE_PATH to wherever dod_sbir.db lives on the server.
+# Usage: ./pull_db.sh
+# Configure REMOTE_USER, REMOTE_HOST, REMOTE_DB_PATH in .env
 
-REMOTE=${1:-"user@yourserver"}
-REMOTE_PATH="/path/to/dod-sbir/dod_sbir.db"
-LOCAL_PATH="$(cd "$(dirname "$0")" && pwd)/dod_sbir.db"
+set -euo pipefail
 
-echo "Pulling dod_sbir.db from $REMOTE..."
-scp "$REMOTE:$REMOTE_PATH" "$LOCAL_PATH"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load .env from project root
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
+else
+    echo "Error: .env not found. Copy .env.example to .env and fill in values." >&2
+    exit 1
+fi
+
+echo "Pulling dod_sbir.db from $REMOTE_USER@$REMOTE_HOST..."
+scp "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DB_PATH" "$SCRIPT_DIR/dod_sbir.db"
 echo "Done. scores.db untouched."
