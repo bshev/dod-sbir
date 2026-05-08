@@ -1,5 +1,9 @@
 # DoD SBIR Scraper
 
+Scrapes open DoD SBIR/STTR solicitation topics from dodsbirsttr.mil and stores
+them in a local SQLite database. Fetches topic stubs and per-topic details via
+the public API, strips HTML from text fields, and upserts into `dod_sbir.db`.
+
 ## Setup (Ubuntu Server)
 
 ### Install Python 3.13

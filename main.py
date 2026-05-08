@@ -4,6 +4,10 @@ __version__ = "1.0.0"
 __status__ = "Production"
 __date__ = "2026/05/08"
 
+# Scrapes open DoD SBIR/STTR topics from dodsbirsttr.mil and stores them in a
+# local SQLite database (dod_sbir.db). Fetches topic stubs via the public search
+# API, then retrieves per-topic details. Strips HTML from text fields.
+
 import sys
 import time
 import json
