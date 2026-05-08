@@ -2,7 +2,7 @@ import sqlite3
 import os
 from flask import Flask, render_template, request, jsonify
 
-DB_PATH = os.environ.get("DB_PATH", "dod_topics.db")
+DB_PATH = os.environ.get("DB_PATH", "dod_sbir.db")
 app = Flask(__name__)
 
 

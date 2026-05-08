@@ -1,13 +1,13 @@
-import json
 import sys
 import time
-import requests
-import pandas as pd
-from loguru import logger
+import json
+import sqlite3
 from datetime import datetime, timezone
+
+import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-import sqlite3
+from loguru import logger
 
 BASE_URL = "https://www.dodsbirsttr.mil"
 
@@ -30,24 +30,37 @@ SEARCH_PARAM = {
 
 PAGE_SIZE = 50
 
+# Fields pulled from the topic stub (search response). Strings get HTML-stripped.
+TOPIC_FIELD_MAP = {
+    "topicTitle": "title",
+    "objective": "objective",
+    "description": "description",
+    "component": "component",
+    "command": "command",
+    "cycleName": "cycle_name",
+}
+
+# Fields pulled from the topic detail response. Strings get HTML-stripped.
 DETAIL_FIELD_MAP = {
     "keywords": "keywords",
     "focusAreas": "modernization_priorities",
     "technologyAreas": "technology_areas",
-    "objective": "objective",
-    "description": "description",
-    "phase1Description": "phase1Description",
-    "phase2Description": "phase2Description",
-    "phase3Description": "phase3Description",
+    "phase1Description": "phase1_description",
+    "phase2Description": "phase2_description",
+    "phase3Description": "phase3_description",
     "referenceDocuments": "referenceDocuments",
 }
 
-HTML_FIELDS = {"objective", "description"}
-
-def epoch_to_date(dt_ms):
-    if not dt_ms:
-        return None
-    return datetime.fromtimestamp(dt_ms / 1000, tz=timezone.utc).strftime("%Y/%m/%d")
+# sqlite db
+COLUMNS = [
+    "topic_id", "topic_code", "status", "program", "solicitation",
+    "open_date", "close_date",
+    "title", "objective", "description", "component", "command", "cycle_name",
+    "keywords", "modernization_priorities", "technology_areas",
+    "phase1_description", "phase2_description", "phase3_description",
+    "referenceDocuments",
+    "phase1_configured", "phase2_configured",
+]
 
 
 def safe_get(session, url, desc="request", timeout=10, **kwargs):
@@ -60,138 +73,138 @@ def safe_get(session, url, desc="request", timeout=10, **kwargs):
         return None
 
 
-def scrape():
-    with requests.Session() as session:
-        session.headers.update(SEARCH_HEADERS)
+def fetch_topic_list(session):
+    """Fetch the open-topic stubs (no per-topic details)."""
+    safe_get(session, f"{BASE_URL}/topics-app/", desc="session seed")
 
-        # Seed cookies
-        safe_get(session, f"{BASE_URL}/topics-app/", desc="session seed")
+    r = safe_get(
+        session,
+        f"{BASE_URL}/topics/api/public/topics/solicitations",
+        desc="solicitations",
+    )
+    if not r:
+        logger.error("Failed to fetch solicitations.")
+        return []
+    solicitations = r.json().get("active", [])
+    logger.debug(f"{len(solicitations)} open solicitations")
 
-        # Solicitations
+    exclude = "INACTIVE,READY_FOR_RELEASE,READY_TO_CERTIFY,READY_TO_REVIEW,REVISION_REQUESTED"
+    r = safe_get(
+        session,
+        f"{BASE_URL}/core/api/public/dropdown/lookup?type=topics.release_status&excludeLookupItem={exclude}",
+        desc="release status codes",
+    )
+    if not r:
+        logger.error("Failed to fetch release status codes, aborting")
+        return []
+    release_codes = {d.get("label"): d.get("value") for d in r.json()}
+
+    search_param = {
+        **SEARCH_PARAM,
+        "topicReleaseStatus": [
+            release_codes.get("Pre-Release"),
+            release_codes.get("Open"),
+        ],
+    }
+
+    all_topics = []
+    page = 0
+    while True:
         r = safe_get(
             session,
-            f"{BASE_URL}/topics/api/public/topics/solicitations",
-            desc="solicitations",
+            f"{BASE_URL}/topics/api/public/topics/search",
+            desc=f"topics page {page}",
+            params={
+                "searchParam": json.dumps(search_param, separators=(",", ":")),
+                "size": PAGE_SIZE,
+                "page": page,
+            },
         )
         if not r:
-            logger.error("Failed to fetch solicitations.")
-            return []
-        solicitations = r.json().get("active", [])
-        logger.debug(f"{len(solicitations)} open solicitations")
-
-        # Release status codes
-        exclude = "INACTIVE,READY_FOR_RELEASE,READY_TO_CERTIFY,READY_TO_REVIEW,REVISION_REQUESTED"
-        r = safe_get(
-            session,
-            f"{BASE_URL}/core/api/public/dropdown/lookup?type=topics.release_status&excludeLookupItem={exclude}",
-            desc="release status codes",
+            logger.warning(f"Stopping pagination at page {page}")
+            break
+        data = r.json()
+        topics = data.get("data", [])
+        if not topics:
+            break
+        all_topics.extend(topics)
+        logger.debug(
+            f"Page {page}: {len(topics)} topics (total: {len(all_topics)}/{data['total']})"
         )
-        if not r:
-            logger.error("Failed to fetch release status codes, aborting")
-            return []
-        release_codes = {d.get("label"): d.get("value") for d in r.json()}
+        if len(all_topics) >= data["total"]:
+            break
+        page += 1
+        time.sleep(0.125)
 
-        search_param = {
-            **SEARCH_PARAM,
-            "topicReleaseStatus": [
-                release_codes.get("Pre-Release"),
-                release_codes.get("Open"),
-            ],
-        }
-
-        # Paginate topics
-        all_topics = []
-        page = 0
-        while True:
-            r = safe_get(
-                session,
-                f"{BASE_URL}/topics/api/public/topics/search",
-                desc=f"topics page {page}",
-                params={
-                    "searchParam": json.dumps(search_param, separators=(",", ":")),
-                    "size": PAGE_SIZE,
-                    "page": page,
-                },
-            )
-            if not r:
-                logger.warning(f"Stopping pagination at page {page}")
-                break
-            data = r.json()
-            topics = data.get("data", [])
-            if not topics:
-                break
-            all_topics.extend(topics)
-            logger.debug(
-                f"Page {page}: {len(topics)} topics (total: {len(all_topics)}/{data['total']})"
-            )
-            if len(all_topics) >= data["total"]:
-                break
-            page += 1
-            time.sleep(0.125)
-
-        if not all_topics:
-            logger.warning("No topics found")
-            return []
-        logger.debug(f"{len(all_topics)} topics found")
-
-        # Fetch details per topic
-        for t in tqdm(all_topics, desc="Fetching details"):
-            tid = t["topicId"]
-            r = safe_get(
-                session,
-                f"{BASE_URL}/topics/api/public/topics/{tid}/details",
-                desc=t["topicCode"],
-            )
-            t["topic_data"] = r.json() if r else {}
-            time.sleep(0.25)
-
-        return all_topics
+    return all_topics
 
 
-def strip_html(text):
-    if not text:
-        return text
-    return BeautifulSoup(text, "html.parser").get_text(strip=True)
+def fetch_topic_detail(session, topic):
+    tid = topic["topicId"]
+    r = safe_get(
+        session,
+        f"{BASE_URL}/topics/api/public/topics/{tid}/details",
+        desc=topic["topicCode"],
+    )
+    return r.json() if r else None
 
 
-def parse(scraped):
-    rows = []
-    for topic in scraped:
-        item = topic.get("topic_data") or {}
-        row = {
-            "topic_id": item.get("topicId"),
-            "topic_code": item.get("topicCode"),
-            "title": item.get("topicTitle"),
-            "status": item.get("topicStatus"),
-            "component": item.get("component"),
-            "command": item.get("command"),
-            "program": item.get("program"),
-            "solicitation": item.get("solicitationTitle"),
-            "open_date": epoch_to_date(item.get("topicStartDate")),
-            "close_date": epoch_to_date(item.get("topicEndDate")),
-        }
-        for api_key, col_name in DETAIL_FIELD_MAP.items():
-            try:
-                val = item.get(api_key)
-                if isinstance(val, list):
-                    val = "; ".join(map(str, val))
-                if api_key in HTML_FIELDS and isinstance(val, str):
-                    val = strip_html(val)
-                row[col_name] = val
-            except Exception:
-                row[col_name] = None
-        rows.append(row)
-    return rows
+def parse_topic(stub, detail):
 
-COLUMNS = [
-    "topic_id", "topic_code", "title", "status", "component", "command",
-    "program", "solicitation", "open_date", "close_date",
-    "keywords", "modernization_priorities", "technology_areas",
-    "objective", "description", "phase1Description", "phase2Description",
-    "phase3Description", "referenceDocuments",
-]
+    def strip_html(text):
+        if not text:
+            return text
+        return BeautifulSoup(text, "html.parser").get_text(strip=True)
 
-def init_db(db_path="dod_topics.db"):
+    def _normalize(val):
+        """Lists become '; '-joined strings, strings get HTML-stripped."""
+        if isinstance(val, list):
+            val = "; ".join(map(str, val))
+        if isinstance(val, str):
+            val = strip_html(val)
+        return val
+    
+    def epoch_to_date(dt_ms):
+        if not dt_ms:
+            return None
+        return datetime.fromtimestamp(dt_ms / 1000, tz=timezone.utc).strftime("%Y/%m/%d")
+
+    def get_phase_hierarchy(item):
+        """Return (phase1_configured, phase2_configured) from a topic's phaseHierarchy."""
+        raw = item.get("phaseHierarchy")
+        if not raw:
+            return None, None
+
+        config = json.loads(raw).get("config", [])
+        p1, p2 = None, None
+        for c in config:
+            if c.get("phase") == "1":
+                p1 = c.get("hasConfiguration") == "Y"
+            elif c.get("phase") == "2":
+                p2 = c.get("hasConfiguration") == "Y"
+        return p1, p2
+
+    row = {
+        "topic_id": stub.get("topicId"),
+        "topic_code": stub.get("topicCode"),
+        "status": stub.get("topicStatus"),
+        "program": stub.get("program"),
+        "solicitation": stub.get("solicitationTitle"),
+        "open_date": epoch_to_date(stub.get("topicStartDate")),
+        "close_date": epoch_to_date(stub.get("topicEndDate")),
+    }
+    for src, dest in TOPIC_FIELD_MAP.items():
+        row[dest] = _normalize(stub.get(src))
+    for src, dest in DETAIL_FIELD_MAP.items():
+        row[dest] = _normalize(detail.get(src))
+
+    p1, p2 = get_phase_hierarchy(stub)
+    row["phase1_configured"] = p1
+    row["phase2_configured"] = p2
+    return row
+
+
+def init_db(db_path):
     conn = sqlite3.connect(db_path)
     cols = ", ".join(
         f"{c} TEXT" if c != "topic_id" else "topic_id TEXT PRIMARY KEY"
@@ -223,16 +236,34 @@ if __name__ == "__main__":
 
     logger.info("Starting scrape")
     try:
-        conn = init_db()
-        scraped = scrape()
-        if not scraped:
-            logger.warning("No data scraped, skipping parse/save")
-            sys.exit(0)
-        parsed = parse(scraped)
-        upsert_rows(conn, parsed)
-        logger.info(f"Done — {len(parsed)} rows upserted")
+        conn = init_db("dod_sbir.db")
+        with requests.Session() as session:
+            session.headers.update(SEARCH_HEADERS)
+
+            topics = fetch_topic_list(session)
+            if not topics:
+                logger.warning("No topics found")
+                sys.exit(0)
+            logger.debug(f"{len(topics)} topics found")
+
+            ok, failed = 0, 0
+            for stub in tqdm(topics, desc="Fetching details"):
+                detail = fetch_topic_detail(session, stub)
+                if not detail:
+                    failed += 1
+                    time.sleep(0.25)
+                    continue
+                try:
+                    row = parse_topic(stub, detail)
+                    upsert_rows(conn, [row])
+                    ok += 1
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"parse/upsert failed for {stub.get('topicCode')}: {e}")
+                time.sleep(0.25)
+
+            logger.info(f"Done. {ok} upserted, {failed} failed")
         conn.close()
     except Exception as e:
         logger.exception(f"Fatal unhandled error: {e}")
         sys.exit(1)
-
