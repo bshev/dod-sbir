@@ -349,13 +349,6 @@
         {% for p in filters.programs %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
       </select>
 
-      <label>Phase 1</label>
-      <select id="filter-phase1">
-        <option value="">All</option>
-        <option value="1">Configured</option>
-        <option value="0">Not configured</option>
-      </select>
-
       <label>Min score</label>
       <select id="filter-score">
         <option value="">All (incl. no score)</option>
@@ -442,7 +435,7 @@
       const p = new URLSearchParams({
         q: document.getElementById("q").value,
         program: document.getElementById("filter-program").value,
-        phase1_configured: document.getElementById("filter-phase1").value,
+        phase1_configured: document.getElementById("filter-phase1")?.value ?? "",
         min_score: document.getElementById("filter-score").value,
       });
       document.getElementById("spinner").style.display = "block";
@@ -506,15 +499,18 @@
           ${meta("Command", t.command)}
           ${meta("Open", t.open_date)}
           ${meta("Close", t.close_date)}
+          <div class="meta-item"><label>Phase I</label><span>${t.phase1_configured ?? "—"}</span></div>
+          <div class="meta-item"><label>Phase II</label><span>${t.phase2_configured ?? "—"}</span></div>
         </div>
         ${sec("Keywords", t.keywords)}
         ${sec("Tech Areas", t.technology_areas)}
         ${sec("Modernization", t.modernization_priorities)}
+        ${sec("Objective", t.objective)}
+        ${sec("Description", t.description)}
         ${sec("Phase I Description", t.phase1_description)}
         ${sec("Phase II Description", t.phase2_description)}
         ${sec("Phase III Description", t.phase3_description)}
-        ${sec("Objective", t.objective)}
-        ${sec("Description", t.description)}
+
         ${sec("Reference Docs", t.referenceDocuments)}
       `;
     }
@@ -525,7 +521,7 @@
     };
 
     // --- Filters & sort ---
-    ["q", "filter-program", "filter-phase1", "filter-score"].forEach(id => {
+    ["q", "filter-program", "filter-score"].forEach(id => {
       document.getElementById(id).addEventListener("input", loadTopics);
     });
 
@@ -534,7 +530,7 @@
     });
 
     document.getElementById("clear-btn").onclick = () => {
-      ["q", "filter-program", "filter-phase1", "filter-score"].forEach(id => {
+      ["q", "filter-program", "filter-score"].forEach(id => {
         document.getElementById(id).value = "";
       });
       loadTopics();

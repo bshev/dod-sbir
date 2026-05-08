@@ -2,8 +2,9 @@ import sqlite3
 import os
 from flask import Flask, render_template, request, jsonify
 
-DB_PATH     = os.environ.get("DB_PATH",     "dod_sbir.db")
-SCORES_PATH = os.environ.get("SCORES_PATH", "scores.db")
+_HERE       = os.path.dirname(os.path.abspath(__file__))
+DB_PATH     = os.environ.get("DB_PATH",     os.path.join(_HERE, "..", "dod_sbir.db"))
+SCORES_PATH = os.environ.get("SCORES_PATH", os.path.join(_HERE, "..", "scores.db"))
 app = Flask(__name__)
 
 
@@ -47,7 +48,6 @@ def index():
 def api_topics():
     q         = request.args.get("q", "").strip()
     prog      = request.args.get("program", "")
-    phase1    = request.args.get("phase1_configured", "")
     min_score = request.args.get("min_score", "")
 
     where, params = ["1=1"], []
@@ -56,14 +56,12 @@ def api_topics():
         params += [f"%{q}%"] * 4
     if prog:
         where.append("t.program = ?"); params.append(prog)
-    if phase1 != "":
-        where.append("t.phase1_configured = ?"); params.append(int(phase1))
     if min_score != "":
         where.append("(s.score IS NULL OR s.score >= ?)"); params.append(int(min_score))
 
     sql = f"""
         SELECT t.topic_id, t.topic_code, t.title, t.component, t.program,
-               t.open_date, t.close_date, t.keywords, t.phase1_configured,
+               t.open_date, t.close_date, t.keywords,
                s.score
         FROM topics t
         LEFT JOIN sdb.scores s ON s.topic_id = t.topic_id

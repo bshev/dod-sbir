@@ -43,8 +43,6 @@ PAGE_SIZE = 50
 # Fields pulled from the topic stub (search response). Strings get HTML-stripped.
 TOPIC_FIELD_MAP = {
     "topicTitle": "title",
-    "objective": "objective",
-    "description": "description",
     "component": "component",
     "command": "command",
     "cycleName": "cycle_name",
@@ -55,6 +53,8 @@ DETAIL_FIELD_MAP = {
     "keywords": "keywords",
     "focusAreas": "modernization_priorities",
     "technologyAreas": "technology_areas",
+    "objective": "objective",
+    "description": "description",
     "phase1Description": "phase1_description",
     "phase2Description": "phase2_description",
     "phase3Description": "phase3_description",
@@ -180,7 +180,7 @@ def parse_topic(stub, detail):
         return datetime.fromtimestamp(dt_ms / 1000, tz=timezone.utc).strftime("%Y/%m/%d")
 
     def get_phase_hierarchy(item):
-        """Return (phase1_configured, phase2_configured) from a topic's phaseHierarchy."""
+        """Return (phase1_configured, phase2_configured) as raw 'Y'/'N' strings."""
         raw = item.get("phaseHierarchy")
         if not raw:
             return None, None
@@ -189,9 +189,9 @@ def parse_topic(stub, detail):
         p1, p2 = None, None
         for c in config:
             if c.get("phase") == "1":
-                p1 = c.get("hasConfiguration") == "Y"
+                p1 = c.get("hasConfiguration")
             elif c.get("phase") == "2":
-                p2 = c.get("hasConfiguration") == "Y"
+                p2 = c.get("hasConfiguration")
         return p1, p2
 
     row = {
@@ -211,13 +211,19 @@ def parse_topic(stub, detail):
     p1, p2 = get_phase_hierarchy(stub)
     row["phase1_configured"] = p1
     row["phase2_configured"] = p2
+
+    desc = row.get("description") or ""
+    phase_note = f"\n\nPhase 1 Configured: {p1 or 'N/A'}\nPhase 2 Configured: {p2 or 'N/A'}"
+    row["description"] = desc + phase_note
+
     return row
 
 
 def init_db(db_path):
     conn = sqlite3.connect(db_path)
     cols = ", ".join(
-        f"{c} TEXT" if c != "topic_id" else "topic_id TEXT PRIMARY KEY"
+        "topic_id TEXT PRIMARY KEY" if c == "topic_id"
+        else f"{c} TEXT"
         for c in COLUMNS
     )
     conn.execute(f"CREATE TABLE IF NOT EXISTS topics ({cols})")
@@ -233,7 +239,12 @@ def upsert_rows(conn, rows):
         VALUES ({placeholders})
         ON CONFLICT(topic_id) DO UPDATE SET {updates}
     """
-    conn.executemany(sql, [[str(r.get(c)) if r.get(c) is not None else None for c in COLUMNS] for r in rows])
+    def serialize(val):
+        if val is None:
+            return None
+        return str(val)
+
+    conn.executemany(sql, [[serialize(r.get(c)) for c in COLUMNS] for r in rows])
     conn.commit()
 
 
