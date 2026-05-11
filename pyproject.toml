@@ -9,13 +9,9 @@ package-mode = false
 python = "3.13.*"
 requests = "*"
 bs4 = "*"
-pandas = "*"
 loguru = "*"
 tqdm = "*"
 flask = "*"
-pdfplumber = "*"
-pymupdf4llm = "*"
-
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
