@@ -173,6 +173,12 @@ def parse_topic(stub, detail):
         if isinstance(val, str):
             val = strip_html(val)
         return val
+
+    def parse_references(refs):
+        if not isinstance(refs, list):
+            return refs
+        titles = [r.get("referenceTitle", "") for r in refs if r.get("referenceTitle")]
+        return "\n".join(titles) if titles else None
     
     def epoch_to_date(dt_ms):
         if not dt_ms:
@@ -206,7 +212,11 @@ def parse_topic(stub, detail):
     for src, dest in TOPIC_FIELD_MAP.items():
         row[dest] = _normalize(stub.get(src))
     for src, dest in DETAIL_FIELD_MAP.items():
-        row[dest] = _normalize(detail.get(src))
+        val = detail.get(src)
+        if src == "referenceDocuments":
+            row[dest] = parse_references(val)
+        else:
+            row[dest] = _normalize(val)
 
     p1, p2 = get_phase_hierarchy(stub)
     row["phase1_configured"] = p1

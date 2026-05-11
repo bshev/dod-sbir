@@ -144,26 +144,9 @@
       color: #778;
     }
 
-    .card-actions {
-      margin-top: 6px;
-    }
-
-    .card-actions button {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 3px;
-      border: 1px solid #dde;
-      background: #f4f5f7;
-      cursor: pointer;
-    }
-
-    .card-actions button:hover {
-      background: #e4e5e8;
-    }
-
     /* Detail pane */
     #detail-pane {
-      width: 560px;
+      width: 1100px;
       min-width: 400px;
       background: #fff;
       border-left: 1px solid #dde;
@@ -327,6 +310,20 @@
     .clear-score:hover {
       color: #667;
     }
+
+    #export-md-btn {
+      font-size: 11px;
+      padding: 4px 10px;
+      border: 1px solid #4a7cff;
+      border-radius: 4px;
+      background: #f0f4ff;
+      color: #4a7cff;
+      cursor: pointer;
+    }
+
+    #export-md-btn:hover {
+      background: #dce8ff;
+    }
   </style>
 </head>
 
@@ -349,9 +346,10 @@
         {% for p in filters.programs %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
       </select>
 
-      <label>Min score</label>
+      <label>Score</label>
       <select id="filter-score">
-        <option value="">All (incl. no score)</option>
+        <option value="">All</option>
+        <option value="none">No score only</option>
         <option value="1">★ 1+</option>
         <option value="2">★★ 2+</option>
         <option value="3">★★★ 3+</option>
@@ -386,7 +384,10 @@
 
     <!-- Detail pane -->
     <aside id="detail-pane">
-      <button id="detail-close">✕ Close</button>
+      <div style="display:flex;gap:8px;align-self:flex-end">
+        <button id="export-md-btn">↓ Export .md</button>
+        <button id="detail-close">✕ Close</button>
+      </div>
       <div id="detail-content"></div>
     </aside>
   </div>
@@ -418,10 +419,8 @@
           <div class="card-title">${t.title || "(no title)"}</div>
           <div class="card-meta">${[t.component, t.program].filter(Boolean).join(" · ")}</div>
           <div class="card-meta">${t.open_date || ""} → ${t.close_date || ""}</div>
-          <div class="card-score">${starsHtml(t.topic_id, t.score, true)}</div>
-          <div class="card-actions">
-            <button onclick="openDetail('${t.topic_id}')">View detail</button>
-          </div>`;
+          <div class="card-score">${starsHtml(t.topic_id, t.score, true)}</div>`;
+        card.onclick = e => { if (!e.target.closest('button')) openDetail(t.topic_id); };
         list.appendChild(card);
       });
     }
@@ -432,11 +431,13 @@
     }
 
     async function _load() {
+      const scoreVal = document.getElementById("filter-score").value;
       const p = new URLSearchParams({
         q: document.getElementById("q").value,
         program: document.getElementById("filter-program").value,
         phase1_configured: document.getElementById("filter-phase1")?.value ?? "",
-        min_score: document.getElementById("filter-score").value,
+        min_score: scoreVal === "none" ? "" : scoreVal,
+        no_score: scoreVal === "none" ? "1" : "",
       });
       document.getElementById("spinner").style.display = "block";
       document.getElementById("topic-list").innerHTML = "";
@@ -480,6 +481,7 @@
       const pane = document.getElementById("detail-pane");
       pane.classList.add("open");
       document.querySelectorAll(".topic-card").forEach(c => c.classList.toggle("selected", c.dataset.id === id));
+      currentDetail = t;
       document.getElementById("detail-content").innerHTML = renderDetail(t);
     }
 
@@ -514,6 +516,47 @@
         ${sec("Reference Docs", t.referenceDocuments)}
       `;
     }
+
+    let currentDetail = null;
+
+    function topicToMd(t) {
+      const line = (label, val) => val != null && val !== "" ? `**${label}:** ${val}\n` : "";
+      const sec = (label, val) => val ? `\n## ${label}\n\n${val}\n` : "";
+      const stars = t.score ? "★".repeat(t.score) + "☆".repeat(5 - t.score) : "—";
+      return [
+        `# ${t.title || "(no title)"}`,
+        "",
+        line("Code", t.topic_code),
+        line("Component", t.component),
+        line("Program", t.program),
+        line("Command", t.command),
+        line("Open", t.open_date),
+        line("Close", t.close_date),
+        line("Phase I", t.phase1_configured),
+        line("Phase II", t.phase2_configured),
+        line("Score", stars),
+        sec("Keywords", t.keywords),
+        sec("Technology Areas", t.technology_areas),
+        sec("Modernization Priorities", t.modernization_priorities),
+        sec("Objective", t.objective),
+        sec("Description", t.description),
+        sec("Phase I Description", t.phase1_description),
+        sec("Phase II Description", t.phase2_description),
+        sec("Phase III Description", t.phase3_description),
+        sec("Reference Documents", t.referenceDocuments),
+      ].join("");
+    }
+
+    document.getElementById("export-md-btn").onclick = () => {
+      if (!currentDetail) return;
+      const md = topicToMd(currentDetail);
+      const blob = new Blob([md], {type: "text/markdown"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${currentDetail.topic_code || currentDetail.topic_id}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
 
     document.getElementById("detail-close").onclick = () => {
       document.getElementById("detail-pane").classList.remove("open");

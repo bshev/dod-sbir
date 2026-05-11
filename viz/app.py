@@ -1,6 +1,9 @@
 import sqlite3
 import os
+import subprocess
+import sys
 from flask import Flask, render_template, request, jsonify
+from loguru import logger
 
 _HERE       = os.path.dirname(os.path.abspath(__file__))
 DB_PATH     = os.environ.get("DB_PATH",     os.path.join(_HERE, "..", "dod_sbir.db"))
@@ -49,15 +52,18 @@ def api_topics():
     q         = request.args.get("q", "").strip()
     prog      = request.args.get("program", "")
     min_score = request.args.get("min_score", "")
+    no_score  = request.args.get("no_score", "")
 
     where, params = ["1=1"], []
     if q:
-        where.append("(t.topic_code LIKE ? OR t.title LIKE ? OR t.keywords LIKE ? OR t.description LIKE ?)")
-        params += [f"%{q}%"] * 4
+        where.append("(t.topic_code LIKE ? OR t.title LIKE ? OR t.keywords LIKE ? OR t.description LIKE ? or t.modernization_priorities LIKE ? or t.technology_areas LIKE ?)")
+        params += [f"%{q}%"] * 6
     if prog:
         where.append("t.program = ?"); params.append(prog)
-    if min_score != "":
-        where.append("(s.score IS NULL OR s.score >= ?)"); params.append(int(min_score))
+    if no_score:
+        where.append("s.score IS NULL")
+    elif min_score != "":
+        where.append("s.score >= ?"); params.append(int(min_score))
 
     sql = f"""
         SELECT t.topic_id, t.topic_code, t.title, t.component, t.program,
@@ -105,5 +111,10 @@ def set_score(topic_id):
 
 
 if __name__ == "__main__":
+    if "--pull-db" in sys.argv and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        script = os.path.join(_HERE, "..", "pull_db.sh")
+        logger.info("Pulling DB from server...")
+        subprocess.run(["bash", script], check=True)
+        logger.info("DB pull complete.")
     init_scores()
     app.run(debug=True, port=5050)
